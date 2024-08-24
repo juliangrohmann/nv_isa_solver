@@ -4,7 +4,7 @@ import tqdm
 import os
 import multiprocessing
 
-from .parser import InstructionParser
+from parser import InstructionParser
 
 
 def _process_dump(dump):
@@ -28,6 +28,7 @@ class Disassembler:
         try:
             with open(filename) as file:
                 for line in file:
+                    print(line)
                     asm, inst = line.split("---")
                     self.cache[bytes.fromhex(inst.strip())] = asm.strip()
         except FileNotFoundError:

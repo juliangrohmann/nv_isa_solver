@@ -7,11 +7,11 @@ from argparse import ArgumentParser
 import traceback
 import os
 
-from .disasm_utils import Disassembler, set_bit_range, get_bit_range
-from . import table_utils
-from . import parser
-from .parser import InstructionParser, Instruction
-from .life_range import analyse_live_ranges, get_interaction_ranges, InteractionType
+from disasm_utils import Disassembler, set_bit_range, get_bit_range
+import table_utils
+import parser
+from parser import InstructionParser, Instruction
+from life_range import analyse_live_ranges, get_interaction_ranges, InteractionType
 
 operand_colors = [
     "#FE8386",
@@ -1165,6 +1165,9 @@ class InstructionSpec:
         for modi in self.opcode_modis:
             counts[modi] -= 1
             if counts[modi] < 0:
+                print("FAILED TO MATCH OP CODE MODIS")
+                print(f"{counts=}")
+                print(f"{self.opcode_modis=}")
                 return None
 
         def score_match(modifier_group):

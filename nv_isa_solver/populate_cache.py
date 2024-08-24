@@ -18,13 +18,14 @@ def main():
     inst = []
     for i in range(pow(2, 12)):
         array = bytearray(b"\0" * 16)
-        set_bit_range(array, 0, 12, i)
-        inst.append(array)
-        for j in range(13, 8 * 13):
-            array_ = bytearray(array)
-            flip_bit(array_, j)
-            inst.append(array_)
-
+        print(array)
+        # set_bit_range(array, 0, 12, i)
+        # inst.append(array)
+        # for j in range(13, 8 * 13):
+        #     array_ = bytearray(array)
+        #     flip_bit(array_, j)
+        #     inst.append(array_)
+    assert False, ""
     disassembler.disassemble_parallel(inst, arguments.arch)
     disassembler.dump_cache(arguments.cache_file)
 

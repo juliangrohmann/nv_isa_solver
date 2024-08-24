@@ -4,8 +4,8 @@ Scan a dissassembly file to add to the corpus.
 `cuobjdump --dump-sass --gpu-architecture sm_90 file`
 """
 
-from .parser import InstructionParser
-from .disasm_utils import Disassembler, get_bit_range
+from parser import InstructionParser
+from disasm_utils import Disassembler, get_bit_range
 
 import argparse
 from argparse import ArgumentParser
@@ -40,7 +40,7 @@ def main():
             return True
         return False
 
-    def to_bytes(first, second):
+    def zto_bytes(first, second):
         first = first.strip()
         second = second.strip()
 
