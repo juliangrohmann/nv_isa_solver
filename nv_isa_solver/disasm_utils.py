@@ -4,7 +4,7 @@ import tqdm
 import os
 import multiprocessing
 
-from .parser import InstructionParser
+from parser import InstructionParser
 
 
 def _process_dump(dump):

@@ -7,11 +7,11 @@ from argparse import ArgumentParser
 import traceback
 import os
 
-from .disasm_utils import Disassembler, set_bit_range, get_bit_range
-from . import table_utils
-from . import parser
-from .parser import InstructionParser, Instruction
-from .life_range import analyse_live_ranges, get_interaction_ranges, InteractionType
+from disasm_utils import Disassembler, set_bit_range, get_bit_range
+import table_utils
+import parser
+from parser import InstructionParser, Instruction
+from life_range import analyse_live_ranges, get_interaction_ranges, InteractionType
 
 operand_colors = [
     "#FE8386",
@@ -519,6 +519,7 @@ class InstructionMutationSet:
 
             operand_effected = False
             # analyse operand values and operand modifiers.
+            print(f"{i_bit}: orig={parsed_operands}, mut={mutated_operands}")
             for i, (a, b) in enumerate(zip(mutated_operands, parsed_operands)):
                 if not a.compare(b):
                     self.operand_value_bits.add(i_bit)
@@ -797,10 +798,10 @@ def analysis_operand_fix(
 
     for i, rng in enumerate(operand_ranges):
         operand = operands[rng.operand_index]
-        if not isinstance(operand, parser.Operand) and not (
+        if not isinstance(operand, parser.Operand) or not (
             isinstance(operand, parser.IntIMMOperand)
             and isinstance(operand.parent, parser.AddressOperand)
-        ):
+        ) or operand.parent is None or len(operand.parent.sub_operands) <= 1:
             continue
         # Not 100% sure about this, what if the bit is between bytes?
         if rng.start % 8 != 0:
