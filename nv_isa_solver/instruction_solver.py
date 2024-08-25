@@ -519,7 +519,6 @@ class InstructionMutationSet:
 
             operand_effected = False
             # analyse operand values and operand modifiers.
-            print(f"{i_bit}: orig={parsed_operands}, mut={mutated_operands}")
             for i, (a, b) in enumerate(zip(mutated_operands, parsed_operands)):
                 if not a.compare(b):
                     self.operand_value_bits.add(i_bit)

@@ -361,7 +361,7 @@ class ConstantMemOperand(Operand):
     @classmethod
     def from_json_obj(cls, obj):
         operands = [Operand.from_json_obj(op) for op in obj["sub_operands"]]
-        return cls(operands[0], operands[1], modifiers=obj["modifiers"])
+        return cls(operands[0], operands[1], modifiers=obj["modifiers"], cx=obj["cx"])
 
 
 class DescOperand(Operand):
