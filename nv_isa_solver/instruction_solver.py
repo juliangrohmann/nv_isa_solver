@@ -1,4 +1,5 @@
 import json
+import math
 from enum import Enum
 from typing import List
 from collections import Counter
@@ -59,6 +60,8 @@ class EncodingRange:
         name=None,
         constant=None,
         group_id=None,
+        inverse=False,
+        shift=None
     ):
         self.type = type
         self.start = start
@@ -67,6 +70,8 @@ class EncodingRange:
         self.group_id = group_id
         self.name = name
         self.constant = constant
+        self.inverse = inverse
+        self.shift = shift
 
     def to_json_obj(self):
         return self.__dict__
@@ -169,6 +174,8 @@ class EncodingRanges:
                 value = rng.constant
             elif rng.type == EncodingRangeType.OPERAND:
                 value = sub_operands[rng.operand_index]
+                if rng.inverse: value ^= 2 ** rng.length - 1
+                if rng.shift: value >>= rng.shift
             elif rng.type == EncodingRangeType.MODIFIER:
                 if modifier_i < len(modifiers):
                     value = modifiers[modifier_i]
@@ -444,10 +451,12 @@ class InstructionMutationSet:
         self.operand_modifier_bit_flag = {}
         self.instruction_modifier_bit_flag = {}
         self.bit_to_operand = {}
+        self.bit_to_shift = {}
         self.predicate_bits = set()
 
         self.modifier_bits = set()
         self.modifier_groups = {}
+        self.inverse = False
 
         self._analyse()
 
@@ -654,6 +663,9 @@ class InstructionMutationSet:
                 _push()
                 current_range = new_range
 
+            if current_range.shift is None and i in self.bit_to_shift:
+                current_range.shift = self.bit_to_shift[i]
+
             if current_range.type == EncodingRangeType.CONSTANT:
                 current_range.constant |= ((self.inst[i // 8] >> (i % 8)) & 1) << (
                     current_range.length - 1
@@ -759,54 +771,129 @@ def analysis_disambiguate_operand_flags(
                 del mset.operand_modifier_bit_flag[adj]
     return changed
 
+def disasm_value(value, mset, rng, disassembler, offset=0):
+    code = bytearray(mset.inst)
+    set_bit_range(code, rng.start - offset, rng.start + rng.length, value)
+    disasm = disassembler.disassemble(code)
+    parsed = InstructionParser.parseInstruction(disasm)
+    return parsed.get_flat_operands()[rng.operand_index].get_operand_value(), disasm
 
-def analysis_operand_fix(
-    disassembler: Disassembler, mset: InstructionMutationSet
-) -> bool:
-    """
-    With operands like [UR10 + 0x1], a constant IMM of 0 changes the operand
-    signature and won't be removed with distillation, causing a discontinuity
-    in the operand or makes it look shorter than it actually is.
-
-    Same happens with some predicates too
-    """
-
-    operands = mset.parsed.get_flat_operands()
-
-    def mutate_test(operand_index, idx, adj):
-        inst = bytearray(mset.inst)
-        set_bit(inst, idx)
-        set_bit(inst, adj)
-        asm = disassembler.disassemble(inst)
-        if len(asm) == 0:
-            return
-        try:
-            parsed = InstructionParser.parseInstruction(asm)
-        except Exception:
-            return
-        if parsed.get_key() != mset.key:
-            return
-        mutated_operands = parsed.get_flat_operands()
-        if operands[operand_index] == mutated_operands[operand_index]:
-            return
-        mset.operand_value_bits.add(idx)
-        mset.bit_to_operand[idx] = operand_index
+def analysis_operand_fix(disassembler: Disassembler, mset: InstructionMutationSet):
+    def is_pred(oper):
+        return isinstance(oper, parser.RegOperand) and oper.reg_type == 'P'
 
     ranges = mset.compute_encoding_ranges()
-    operand_ranges = ranges._find(EncodingRangeType.OPERAND)
+    opers = mset.parsed.get_flat_operands()
+    seen = set()
+    for rng in ranges._find(EncodingRangeType.OPERAND):
+        oper = opers[rng.operand_index]
+        if not isinstance(oper, parser.IntIMMOperand) and not is_pred(oper): continue
 
-    for i, rng in enumerate(operand_ranges):
-        operand = operands[rng.operand_index]
-        if not isinstance(operand, parser.Operand) or not (
-            isinstance(operand, parser.IntIMMOperand)
-            and isinstance(operand.parent, parser.AddressOperand)
-        ) or operand.parent is None or len(operand.parent.sub_operands) <= 1:
-            continue
-        # Not 100% sure about this, what if the bit is between bytes?
-        if rng.start % 8 != 0:
-            mutate_test(rng.operand_index, rng.start - 1, rng.start)
-        elif rng.length % 8 != 0:
-            mutate_test(rng.operand_index, rng.start + rng.length, rng.start)
+        if "LDG_R_R_RURI_I" == mset.parsed.get_key():
+            verbose = True
+            print(f"[DEBUG] {rng.operand_index=}")
+            print(f"[DEBUG] {rng.length=}")
+        else:
+            verbose = False
+
+        if (rng.length <= 2 and not is_pred(oper)) or rng.operand_index in seen: continue
+        seen.add(rng.operand_index)
+        val_zero, disasm_zero = disasm_value(0, mset, rng, disassembler)
+        val_one, disasm_one = disasm_value(1, mset, rng, disassembler)
+        diff = abs(val_one - val_zero)
+        if verbose: print(f"[DEBUG] {diff=}")
+        if diff < 1: continue
+        missing = math.log2(diff)
+        if verbose: print(f"[DEBUG] {missing=}")
+        if missing != int(missing): continue
+        if missing < 1: continue
+        # print(f"Key={mset.parsed.get_key()}")
+        # print(f"Zero value={val_zero}")
+        # print(f"One value={val_one}")
+        # print(f"Zero disasm={disasm_zero}")
+        # print(f"One disasm={disasm_one}")
+        shift = 0
+        missing = int(missing)
+        if not is_pred(oper):
+            for i in range(0, rng.length):
+                enc_val = 1 << i
+                disasm_val, disasm = disasm_value(enc_val, mset, rng, disassembler, offset=missing)
+                if verbose: print(f"{enc_val=}, {disasm_val=}")
+                if disasm_val == enc_val:
+                    print(f"{mset.parsed.get_key()}: shift by {i}")
+                    mset.bit_to_shift[rng.start] = shift = i
+                    break
+        for i in range(1, ext := missing - shift + 1):
+            mset.operand_value_bits.add(rng.start - i)
+            mset.bit_to_operand[rng.start - i] = rng.operand_index
+        print(f"{mset.parsed.get_key()}: extended by {ext - 1}")
+
+
+def analysis_predicate_fix(disassembler: Disassembler, mset: InstructionMutationSet, ranges: EncodingRanges):
+    opers = mset.parsed.get_flat_operands()
+    for rng in ranges._find(EncodingRangeType.OPERAND):
+        oper = opers[rng.operand_index]
+        if not isinstance(oper, parser.RegOperand) or not oper.reg_type == 'P': continue
+        code = bytearray(mset.inst)
+        set_bit_range(code, rng.start, rng.start + rng.length, 1)
+        disasm = disassembler.disassemble(code)
+        parsed = InstructionParser.parseInstruction(disasm)
+        disasm_val = parsed.get_flat_operands()[rng.operand_index].get_operand_value()
+        # print(f"{int.from_bytes(code, "little")=}")
+        # print(f"{mset.disasm=}")
+        # print(f"{disasm=}")
+        # print(f"{disasm_val=}")
+        if disasm_val == 6:
+            print(f"{mset.parsed.get_key()}: found inverse")
+            rng.inverse = True
+
+# def analysis_operand_fix(
+#     disassembler: Disassembler, mset: InstructionMutationSet
+# ) -> bool:
+#     """
+#     With operands like [UR10 + 0x1], a constant IMM of 0 changes the operand
+#     signature and won't be removed with distillation, causing a discontinuity
+#     in the operand or makes it look shorter than it actually is.
+#
+#     Same happens with some predicates too
+#     """
+#
+#     operands = mset.parsed.get_flat_operands()
+#
+#     def mutate_test(operand_index, idx, adj):
+#         inst = bytearray(mset.inst)
+#         set_bit(inst, idx)
+#         set_bit(inst, adj)
+#         asm = disassembler.disassemble(inst)
+#         if len(asm) == 0:
+#             return
+#         try:
+#             parsed = InstructionParser.parseInstruction(asm)
+#         except Exception:
+#             return
+#         if parsed.get_key() != mset.key:
+#             return
+#         mutated_operands = parsed.get_flat_operands()
+#         if operands[operand_index] == mutated_operands[operand_index]:
+#             return
+#         mset.operand_value_bits.add(idx)
+#         mset.bit_to_operand[idx] = operand_index
+#
+#     ranges = mset.compute_encoding_ranges()
+#     operand_ranges = ranges._find(EncodingRangeType.OPERAND)
+#
+#     for i, rng in enumerate(operand_ranges):
+#         operand = operands[rng.operand_index]
+#         if not isinstance(operand, parser.Operand) or not (
+#             isinstance(operand, parser.IntIMMOperand)
+#             and isinstance(operand.parent, parser.AddressOperand)
+#         ) or operand.parent is None or len(operand.parent.sub_operands) <= 1:
+#             continue
+#         # Not 100% sure about this, what if the bit is between bytes?
+#         if rng.start % 8 != 0:
+#             mutate_test(rng.operand_index, rng.start - 1, rng.start)
+#         elif rng.length % 8 != 0:
+#             mutate_test(rng.operand_index, rng.start + rng.length, rng.start)
 
 
 def analysis_extend_modifiers(
@@ -1429,12 +1516,13 @@ def instruction_analysis_pipeline(inst, disassembler, arch_code):
     mutation_set = InstructionMutationSet(inst, asm, mutations, disassembler)
     parsed_inst = InstructionParser.parseInstruction(asm)
     analysis_run_fixedpoint(disassembler, mutation_set, analysis_disambiguate_flags)
-    analysis_operand_fix(disassembler, mutation_set)
     analysis_disambiguate_operand_flags(disassembler, mutation_set)
+    analysis_operand_fix(disassembler, mutation_set)
     analysis_run_fixedpoint(disassembler, mutation_set, analysis_extend_modifiers)
     # analysis_modifier_coalescing(disassembler, mutation_set)
     analysis_run_fixedpoint(disassembler, mutation_set, analysis_modifier_splitting)
     ranges = mutation_set.compute_encoding_ranges()
+    analysis_predicate_fix(disassembler, mutation_set, ranges)
 
     modifier_values = ranges.enumerate_modifiers(disassembler)
 
@@ -1523,6 +1611,9 @@ def main():
             instructions = [
                 (key, inst) for key, inst in instructions if arguments.filter in key
             ]
+        invalid_ops = ["SNOWFLAKE", "INVALID", "IMMA", "HMMA", "BMMA", "DMMA", "QMMA", "RPCMOV", "TEX", "TLD", "TMML", "TXD", "LDG_R_R_RURI_I"]
+        instructions = [(k,v) for k,v in instructions if not any(op in k for op in invalid_ops)]
+
         if len(instructions) == 0:
             print("No new instruction found, exiting")
             break

@@ -184,6 +184,9 @@ class Operand:
     def get_operand_key(self):
         raise NotImplementedError
 
+    def get_operand_value(self):
+        raise NotImplementedError
+
     def modifier_repr(self):
         return ".".join(self.modifiers)
 
@@ -218,6 +221,9 @@ class RegOperand(Operand):
 
     def get_operand_key(self):
         return self.reg_type
+
+    def get_operand_value(self):
+        return None if self.reg_type == 'P' and self.ident == 'R' else int(self.ident)
 
     def compare(self, other):
         return self.ident == other.ident
@@ -302,6 +308,9 @@ class IntIMMOperand(Operand):
     def get_operand_key(self):
         return "I"
 
+    def get_operand_value(self):
+        return int(self.constant)
+
     def compare(self, other):
         return self.constant == other.constant
 
@@ -323,6 +332,9 @@ class FloatIMMOperand(Operand):
 
     def get_operand_key(self):
         return "FI"
+
+    def get_operand_value(self):
+        return float(self.constant)
 
     def compare(self, other):
         return self.constant == other.constant
@@ -411,6 +423,9 @@ class Instruction:
         return "_".join(
             [self.base_name] + [op.get_operand_key() for op in self.operands]
         )
+
+    def get_values(self):
+        return [op.get_operand_value() for op in self.get_flat_operands() if op is not None and op.get_operand_value() is not None]
 
     def __repr__(self):
         return f"{self.predicate} {self.base_name} {repr(self.modifiers)} {repr(self.operands)[1:-1]}"
