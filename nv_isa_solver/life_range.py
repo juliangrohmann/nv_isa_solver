@@ -3,7 +3,7 @@ from enum import Enum
 import os
 import tempfile
 
-from cubin import cubin
+from cubin_util import cubin
 
 
 class InteractionType(str, Enum):

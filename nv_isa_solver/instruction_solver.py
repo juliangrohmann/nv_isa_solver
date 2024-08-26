@@ -2,7 +2,7 @@ import json
 import math
 from enum import Enum
 from typing import List
-from collections import Counter
+from collections import Counter, defaultdict
 from concurrent import futures
 from argparse import ArgumentParser
 import traceback
@@ -168,6 +168,7 @@ class EncodingRanges:
             EncodingRangeType.BARRIER_MASK: barrier_mask,
         }
 
+        written = defaultdict(int)
         for rng in self.ranges:
             value = None
             if rng.type == EncodingRangeType.CONSTANT:
@@ -196,9 +197,11 @@ class EncodingRanges:
             elif rng.type in range_vals:
                 value = range_vals[rng.type]
 
-            if not value:
-                continue
+            if not value: continue
+            value >>= written[rng.operand_index]
+            # print(f"type {rng.type}: writing {value} to oper {rng.operand_index}: [{rng.start}, {rng.start + rng.length})")
             set_bit_range(result, rng.start, rng.start + rng.length, value)
+            if rng.operand_index: written[rng.operand_index] = rng.length
         return result
 
     def enumerate_modifiers(self, disassembler, initial_values=None):
@@ -1615,8 +1618,6 @@ def main():
             instructions = [
                 (key, inst) for key, inst in instructions if arguments.filter in key
             ]
-        invalid_ops = ["SNOWFLAKE", "INVALID", "IMMA", "HMMA", "BMMA", "DMMA", "QMMA", "RPCMOV", "TEX", "TLD", "TMML", "TXD", "LDG_R_R_RURI_I"]
-        instructions = [(k,v) for k,v in instructions if not any(op in k for op in invalid_ops)]
 
         if len(instructions) == 0:
             print("No new instruction found, exiting")
