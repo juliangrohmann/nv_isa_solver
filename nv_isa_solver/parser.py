@@ -223,7 +223,10 @@ class RegOperand(Operand):
         return self.reg_type
 
     def get_operand_value(self):
-        return None if self.reg_type == 'P' and self.ident == 'R' else int(self.ident)
+        try:
+            return int(self.ident)
+        except ValueError:
+            return 0
 
     def compare(self, other):
         return self.ident == other.ident
