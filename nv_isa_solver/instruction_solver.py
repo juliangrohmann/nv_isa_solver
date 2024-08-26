@@ -776,7 +776,9 @@ def disasm_value(value, mset, rng, disassembler, offset=0):
     set_bit_range(code, rng.start - offset, rng.start + rng.length, value)
     disasm = disassembler.disassemble(code)
     parsed = InstructionParser.parseInstruction(disasm)
-    return parsed.get_flat_operands()[rng.operand_index].get_operand_value(), disasm
+    opers = parsed.get_flat_operands()
+    if rng.operand_index >= len(opers): return None, None
+    return opers[rng.operand_index].get_operand_value(), disasm
 
 def analysis_operand_fix(disassembler: Disassembler, mset: InstructionMutationSet):
     def is_pred(oper):
@@ -800,6 +802,8 @@ def analysis_operand_fix(disassembler: Disassembler, mset: InstructionMutationSe
         seen.add(rng.operand_index)
         val_zero, disasm_zero = disasm_value(0, mset, rng, disassembler)
         val_one, disasm_one = disasm_value(1, mset, rng, disassembler)
+        if any(v is None for v in [val_zero, val_one]): continue
+
         diff = abs(val_one - val_zero)
         if verbose: print(f"[DEBUG] {diff=}")
         if diff < 1: continue
