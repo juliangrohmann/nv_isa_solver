@@ -10,6 +10,7 @@ def main():
     arguments = parser.parse_args()
 
     disassembler = Disassembler(arguments.arch, nvdisasm=arguments.nvdisasm)
+    disassembler.load_cache(arguments.cache_file)
 
     def flip_bit(array, i):
         bit_offset = i % 8
