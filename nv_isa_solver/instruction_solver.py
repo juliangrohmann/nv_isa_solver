@@ -175,6 +175,7 @@ class EncodingRanges:
                 value = rng.constant
             elif rng.type == EncodingRangeType.OPERAND:
                 value = sub_operands[rng.operand_index]
+                if rng.offset: value -= offset
                 if rng.inverse: value ^= 2 ** rng.length - 1
                 if rng.shift: value >>= rng.shift
             elif rng.type == EncodingRangeType.MODIFIER:
@@ -794,7 +795,7 @@ def analysis_operand_fix(disassembler: Disassembler, mset: InstructionMutationSe
         oper = opers[rng.operand_index]
         if not isinstance(oper, parser.IntIMMOperand) and not is_pred(oper): continue
 
-        if "LDG_R_R_RURI_I" == mset.parsed.get_key():
+        if "BRA_I" == mset.parsed.get_key():
             verbose = True
             print(f"[DEBUG] {rng.operand_index=}")
             print(f"[DEBUG] {rng.length=}")
@@ -807,7 +808,7 @@ def analysis_operand_fix(disassembler: Disassembler, mset: InstructionMutationSe
         val_one, disasm_one = disasm_value(1, mset, rng, disassembler)
         if any(v is None for v in [val_zero, val_one]): continue
 
-        diff = abs(val_one - val_zero)
+        diff = abs(val_one - val_zero) if is_pred(oper) else val_one - val_zero
         if verbose: print(f"[DEBUG] {diff=}")
         if diff < 1: continue
         missing = math.log2(diff)
@@ -821,15 +822,20 @@ def analysis_operand_fix(disassembler: Disassembler, mset: InstructionMutationSe
         # print(f"One disasm={disasm_one}")
         shift = 0
         missing = int(missing)
+        offsets = []
         if not is_pred(oper):
             for i in range(0, rng.length):
                 enc_val = 1 << i
                 disasm_val, disasm = disasm_value(enc_val, mset, rng, disassembler, offset=missing)
+                offsets.append(disasm_val - enc_val)
                 if verbose: print(f"{enc_val=}, {disasm_val=}")
                 if disasm_val == enc_val:
                     print(f"{mset.parsed.get_key()}: shift by {i}")
                     mset.bit_to_shift[rng.start] = shift = i
                     break
+        if len(offsets) >= 8 and offsets.count(offsets[-1]) >= len(offsets) // 2:
+            rng.offset = offsets[-1]
+            print(f"{mset.parsed.get_key()}: offset by {offsets[-1]}")
         for i in range(1, ext := missing - shift + 1):
             mset.operand_value_bits.add(rng.start - i)
             mset.bit_to_operand[rng.start - i] = rng.operand_index
