@@ -61,7 +61,8 @@ class EncodingRange:
         constant=None,
         group_id=None,
         inverse=False,
-        shift=None
+        shift=None,
+        offset=None
     ):
         self.type = type
         self.start = start
@@ -72,6 +73,7 @@ class EncodingRange:
         self.constant = constant
         self.inverse = inverse
         self.shift = shift
+        self.offset = offset
 
     def to_json_obj(self):
         return self.__dict__
