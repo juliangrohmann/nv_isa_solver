@@ -815,17 +815,18 @@ def analysis_operand_fix(disassembler: Disassembler, mset: InstructionMutationSe
         shift = 0
         missing = int(missing)
         offsets = []
-        failure = True
+        failure = False
         if not is_pred(oper):
             for i in range(0, rng.length):
                 enc_val = 1 << i
                 disasm_val, disasm = disasm_value(enc_val, mset, rng, disassembler, offset=missing)
-                if disasm_val is None: break
+                if disasm_val is None:
+                    failure = True
+                    break
                 offsets.append(disasm_val - enc_val)
                 if disasm_val == enc_val:
                     print(f"{mset.parsed.get_key()}: shift by {i}")
                     mset.bit_to_shift[rng.start] = shift = i
-                    failure = False
                     break
         if failure:
             print(f"{mset.parsed.get_key()}: unexpected failure")
@@ -833,6 +834,9 @@ def analysis_operand_fix(disassembler: Disassembler, mset: InstructionMutationSe
         if len(offsets) >= 8 and offsets.count(offsets[-1]) >= len(offsets) // 2:
             rng.offset = offsets[-1]
             print(f"{mset.parsed.get_key()}: offset by {offsets[-1]}")
+        elif len(offsets) and offsets[-1] != 0:
+            print(f"{mset.parsed.get_key()}: failed to correct")
+            continue
         for i in range(1, ext := missing - shift + 1):
             mset.operand_value_bits.add(rng.start - i)
             mset.bit_to_operand[rng.start - i] = rng.operand_index
