@@ -6,7 +6,6 @@ import multiprocessing
 
 from parser import InstructionParser
 
-
 def _process_dump(dump):
     lines = dump.split("\n")[1:]
     result = []

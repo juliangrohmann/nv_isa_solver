@@ -796,25 +796,15 @@ def analysis_operand_fix(disassembler: Disassembler, mset: InstructionMutationSe
     for rng in ranges._find(EncodingRangeType.OPERAND):
         oper = opers[rng.operand_index]
         if not isinstance(oper, parser.IntIMMOperand) and not is_pred(oper): continue
-
-        if "BRA_I" == mset.parsed.get_key():
-            verbose = True
-            print(f"[DEBUG] {rng.operand_index=}")
-            print(f"[DEBUG] {rng.length=}")
-        else:
-            verbose = False
-
         if (rng.length <= 2 and not is_pred(oper)) or rng.operand_index in seen: continue
         seen.add(rng.operand_index)
         val_zero, disasm_zero = disasm_value(0, mset, rng, disassembler)
         val_one, disasm_one = disasm_value(1, mset, rng, disassembler)
-        if any(v is None for v in [val_zero, val_one]): continue
+        if val_zero is None or val_one is None: continue
 
         diff = abs(val_one - val_zero) if is_pred(oper) else val_one - val_zero
-        if verbose: print(f"[DEBUG] {diff=}")
         if diff < 1: continue
         missing = math.log2(diff)
-        if verbose: print(f"[DEBUG] {missing=}")
         if missing != int(missing): continue
         if missing < 1: continue
         # print(f"Key={mset.parsed.get_key()}")
@@ -825,16 +815,21 @@ def analysis_operand_fix(disassembler: Disassembler, mset: InstructionMutationSe
         shift = 0
         missing = int(missing)
         offsets = []
+        failure = True
         if not is_pred(oper):
             for i in range(0, rng.length):
                 enc_val = 1 << i
                 disasm_val, disasm = disasm_value(enc_val, mset, rng, disassembler, offset=missing)
+                if disasm_val is None: break
                 offsets.append(disasm_val - enc_val)
-                if verbose: print(f"{enc_val=}, {disasm_val=}")
                 if disasm_val == enc_val:
                     print(f"{mset.parsed.get_key()}: shift by {i}")
                     mset.bit_to_shift[rng.start] = shift = i
+                    failure = False
                     break
+        if failure:
+            print(f"{mset.parsed.get_key()}: unexpected failure")
+            continue
         if len(offsets) >= 8 and offsets.count(offsets[-1]) >= len(offsets) // 2:
             rng.offset = offsets[-1]
             print(f"{mset.parsed.get_key()}: offset by {offsets[-1]}")
