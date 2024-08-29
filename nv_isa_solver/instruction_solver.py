@@ -670,9 +670,10 @@ class InstructionMutationSet:
                 _push()
                 current_range = new_range
 
-            if current_range.shift is None:
-                if i in self.bit_to_shift: current_range.shift = self.bit_to_shift[i]
-                if i in self.bit_to_offset: current_range.offset = self.bit_to_offset[i]
+            if current_range.shift is None and i in self.bit_to_shift:
+                current_range.shift = self.bit_to_shift[i]
+            if current_range.offset is None and i in self.bit_to_offset:
+                current_range.offset = self.bit_to_offset[i]
 
             if current_range.type == EncodingRangeType.CONSTANT:
                 current_range.constant |= ((self.inst[i // 8] >> (i % 8)) & 1) << (
