@@ -458,6 +458,7 @@ class InstructionMutationSet:
         self.instruction_modifier_bit_flag = {}
         self.bit_to_operand = {}
         self.bit_to_shift = {}
+        self.bit_to_offset = {}
         self.predicate_bits = set()
 
         self.modifier_bits = set()
@@ -669,8 +670,9 @@ class InstructionMutationSet:
                 _push()
                 current_range = new_range
 
-            if current_range.shift is None and i in self.bit_to_shift:
-                current_range.shift = self.bit_to_shift[i]
+            if current_range.shift is None:
+                if i in self.bit_to_shift: current_range.shift = self.bit_to_shift[i]
+                if i in self.bit_to_offset: current_range.offset = self.bit_to_offset[i]
 
             if current_range.type == EncodingRangeType.CONSTANT:
                 current_range.constant |= ((self.inst[i // 8] >> (i % 8)) & 1) << (
@@ -831,8 +833,8 @@ def analysis_operand_fix(disassembler: Disassembler, mset: InstructionMutationSe
         if failure:
             print(f"{mset.parsed.get_key()}: unexpected failure")
             continue
-        if len(offsets) >= 8 and offsets.count(offsets[-1]) >= len(offsets) // 2:
-            rng.offset = offsets[-1]
+        if len(offsets) >= 8 and offsets.count(offsets[-1]) >= len(offsets) // 2 and offsets[-1] != 0:
+            mset.bit_to_offset[rng.start] = offsets[-1]
             print(f"{mset.parsed.get_key()}: offset by {offsets[-1]}")
         elif len(offsets) and offsets[-1] != 0:
             print(f"{mset.parsed.get_key()}: failed to correct")
