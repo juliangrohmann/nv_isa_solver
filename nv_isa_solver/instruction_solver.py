@@ -835,7 +835,10 @@ def analysis_operand_fix(disassembler: Disassembler, mset: InstructionMutationSe
             print(f"{mset.parsed.get_key()}: unexpected failure")
             continue
         if len(offsets) >= 8 and offsets.count(offsets[-1]) >= len(offsets) // 2 and offsets[-1] != 0:
-            mset.bit_to_offset[rng.start] = offsets[-1]
+            mset.bit_to_offset[rng.start] = off = offsets[-1]
+            if shift := [v - off for v in offsets].index(0) != 0:
+                mset.bit_to_shift[rng.start] = shift
+                print(f"{mset.parsed.get_key()}: shift by {shift} with offset")
             print(f"{mset.parsed.get_key()}: offset by {offsets[-1]}")
         elif len(offsets) and offsets[-1] != 0:
             print(f"{mset.parsed.get_key()}: failed to correct")
