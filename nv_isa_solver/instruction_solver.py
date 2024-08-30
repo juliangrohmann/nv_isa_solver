@@ -177,7 +177,7 @@ class EncodingRanges:
                 value = rng.constant
             elif rng.type == EncodingRangeType.OPERAND:
                 value = sub_operands[rng.operand_index]
-                if rng.offset: value -= offset
+                if rng.offset: value -= rng.offset
                 if rng.inverse: value ^= 2 ** rng.length - 1
                 if rng.shift: value >>= rng.shift
             elif rng.type == EncodingRangeType.MODIFIER:
