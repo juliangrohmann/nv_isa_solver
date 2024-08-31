@@ -1,5 +1,6 @@
 import json
 import math
+import itertools
 from enum import Enum
 from typing import List
 from collections import Counter, defaultdict
@@ -207,6 +208,9 @@ class EncodingRanges:
             if rng.operand_index: written[rng.operand_index] = rng.length
         return result
 
+    def is_invalid(self, mod):
+        return "INVALID" in mod or "??" in mod
+
     def enumerate_modifiers(self, disassembler, initial_values=None):
         # NOTE: Enumerating with invalid modifiers in the instruction might be
         #      causing problems for us!
@@ -218,57 +222,77 @@ class EncodingRanges:
         if initial_values:
             _modi_values = list(initial_values)
         else:
-            _modi_values = [
-                get_bit_range(self.inst, rng.start, rng.start + rng.length)
-                for rng in modifiers
-            ]
+            _modi_values = [get_bit_range(self.inst, rng.start, rng.start + rng.length) for rng in modifiers]
 
         for modifier_i, modifier in enumerate(modifiers):
-            insts = []
-            for modi_val in range(2**modifier.length):
-                modi_values = list(_modi_values)
-                modi_values[modifier_i] = modi_val
-                insts.append(self.encode(operand_values, modi_values))
-            disasms = disassembler.disassemble_parallel(insts)
-            analysis_result.append([])
-
-            try:
-                first_modis = InstructionParser.parseInstruction(disasms[0]).modifiers
-                second_modis = InstructionParser.parseInstruction(disasms[1]).modifiers
-            except Exception:
+            mod_result = self.enumerate_mod(disassembler, list(_modi_values), modifier, modifier_i)
+            if mod_result is None:
+                analysis_result.append([])
                 continue
 
-            first_difference = find_modifier_difference(second_modis, first_modis)
-
-            basis = Counter(first_modis)
-            for modi in first_difference.split("."):
-                basis[modi] -= 1
-            counter_remove_zeros(basis)
-
-            replace_original = False
-
-            for i, asm in enumerate(disasms):
-                try:
-                    asm_modis = InstructionParser.parseInstruction(asm).modifiers
-                except Exception:
-                    continue
-                name = basis_find_modifier_difference(basis, asm_modis)
-                # Replace the modifier value if the default value fuzzing found for this modifier is invalid.
-                if (
-                    name.startswith("INVALID") or name.startswith("???")
-                ) and i == get_bit_range(
-                    self.inst, modifier.start, modifier.start + modifier.length
-                ):
-                    replace_original = True
-                analysis_result[-1].append((i, name))
-            if replace_original:
-                for val, name in analysis_result[-1]:
-                    # NOTE: Hopefully this will help with enumeration.
-                    if "INVALID" not in name and "???" not in name:
-                        _modi_values[modifier_i] = val
-                        break
+            for value, name in mod_result:
+                if self.is_invalid(name):
+                    print(f"Invalid mod result: {mod_result}, switching to dependent analysis")
+                    analysis_result.append(self.enumerate_dependent_mod(disassembler, modifiers, modifier_i))
+                    break
+            else:
+                analysis_result.append(mod_result)
 
         return analysis_result
+
+    def enumerate_dependent_mod(self, disassembler, modifiers, idx):
+        parsed = InstructionParser.parseInstruction(disassembler.disassemble(self.inst))
+        print(f"{parsed.get_key()}: Enumerating dependent mods ({idx=})")
+        val_ranges = [[v for v in range(2**m.length)] if i != idx else [0] for i,m in enumerate(modifiers)]
+        bases = itertools.product(*val_ranges)
+        results = []
+        for basis in bases:
+            mods = self.enumerate_mod(disassembler, list(basis), modifiers[idx], idx)
+            if mods != None:
+                results.append(mods)
+        real_mods = []
+        for probe_val in range(2**modifiers[idx].length):
+            for res in results:
+                valid = [name for val, name in res if val == probe_val and not self.is_invalid(name)]
+                if len(valid):
+                    real_mods.append((probe_val, valid[0]))
+                    break
+        print(f"Dependent result: {real_mods}")
+        return real_mods
+
+    def enumerate_mod(self, disassembler, initial_values, modifier, idx):
+        insts = []
+        values = initial_values
+        operand_values = [0] * self.operand_count()
+        for probe_val in range(2**modifier.length):
+            values[idx] = probe_val
+            insts.append(self.encode(operand_values, values))
+        disasms = disassembler.disassemble_parallel(insts)
+        ret = []
+
+        try:
+            first_modis = InstructionParser.parseInstruction(disasms[0]).modifiers
+            second_modis = InstructionParser.parseInstruction(disasms[1]).modifiers
+        except Exception:
+            return None
+
+        first_difference = find_modifier_difference(second_modis, first_modis)
+
+        basis = Counter(first_modis)
+        for modi in first_difference.split("."):
+            basis[modi] -= 1
+        counter_remove_zeros(basis)
+
+        replace_original = False
+
+        for i, asm in enumerate(disasms):
+            try:
+                asm_modis = InstructionParser.parseInstruction(asm).modifiers
+            except Exception:
+                continue
+            name = basis_find_modifier_difference(basis, asm_modis)
+            ret.append((i, name))
+        return ret
 
     def enumerate_operand_modifiers(self, disassembler):
         operand_modifiers = self._find(EncodingRangeType.OPERAND_MODIFIER)
@@ -1545,7 +1569,6 @@ def instruction_analysis_pipeline(inst, disassembler, arch_code):
     analysis_predicate_fix(disassembler, mutation_set, ranges)
 
     modifier_values = ranges.enumerate_modifiers(disassembler)
-
     operand_modifier_values = ranges.enumerate_operand_modifiers(disassembler)
     spec = InstructionSpec(
         asm, parsed_inst, ranges, modifier_values, operand_modifier_values
