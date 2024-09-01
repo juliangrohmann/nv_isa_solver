@@ -224,6 +224,7 @@ class EncodingRanges:
         else:
             _modi_values = [get_bit_range(self.inst, rng.start, rng.start + rng.length) for rng in modifiers]
 
+        print(f"{_modi_values=}")
         for modifier_i, modifier in enumerate(modifiers):
             mod_result = self.enumerate_mod(disassembler, list(_modi_values), modifier, modifier_i)
             if mod_result is None:
@@ -252,11 +253,11 @@ class EncodingRanges:
                 results.append(mods)
         real_mods = []
         for probe_val in range(2**modifiers[idx].length):
-            for res in results:
-                valid = [name for val, name in res if val == probe_val and not self.is_invalid(name)]
-                if len(valid):
-                    real_mods.append((probe_val, valid[0]))
-                    break
+            valid = [name for res in results for val,name in res if val == probe_val and not self.is_invalid(name)]
+            print(f"{probe_val=}, {idx=}, {valid=}")
+            if len(valid):
+                real_mods.append((probe_val, valid[0] if all(v == valid[0] for v in valid) else ''))
+
         print(f"Dependent result: {real_mods}")
         return real_mods
 
@@ -579,13 +580,9 @@ class InstructionMutationSet:
             # we will consider it a different instruction anways.
             if i_bit > 12:
                 # analyse instruction modifiers.
-                effected, flag = analyse_modifiers(
-                    self.parsed.modifiers, mutated_parsed.modifiers
-                )
-                if effected:
-                    self.modifier_bits.add(i_bit)
-                if flag:
-                    self.instruction_modifier_bit_flag[i_bit] = flag
+                effected, flag = analyse_modifiers(self.parsed.modifiers, mutated_parsed.modifiers)
+                if effected: self.modifier_bits.add(i_bit)
+                if flag: self.instruction_modifier_bit_flag[i_bit] = flag
 
     def compute_encoding_ranges(self):
         """
@@ -678,16 +675,11 @@ class InstructionMutationSet:
             if new_range is None:
                 new_range = EncodingRange(EncodingRangeType.CONSTANT, i, 1, constant=0)
             # Decide if we should extend the current range or not.
-            if (
-                current_range
-                and new_range.type == current_range.type
-                and new_range.operand_index == current_range.operand_index
-                and (new_range.type != EncodingRangeType.CONSTANT or i != 8 * 8)
-                and (
-                    new_range.group_id is None
-                    or new_range.group_id == current_range.group_id
-                )
-            ):
+            if (current_range
+                    and new_range.type == current_range.type
+                    and new_range.operand_index == current_range.operand_index
+                    and (new_range.type != EncodingRangeType.CONSTANT or i != 8 * 8)
+                    and (new_range.group_id is None or new_range.group_id == current_range.group_id)):
                 current_range.length += 1
             else:
                 # Push current range
@@ -700,9 +692,7 @@ class InstructionMutationSet:
                 current_range.offset = self.bit_to_offset[i]
 
             if current_range.type == EncodingRangeType.CONSTANT:
-                current_range.constant |= ((self.inst[i // 8] >> (i % 8)) & 1) << (
-                    current_range.length - 1
-                )
+                current_range.constant |= ((self.inst[i // 8] >> (i % 8)) & 1) << (current_range.length - 1)
 
         _push()
 
@@ -1555,6 +1545,7 @@ def analysis_run_fixedpoint(
 def instruction_analysis_pipeline(inst, disassembler, arch_code):
     inst = disassembler.distill_instruction(inst)
     asm = disassembler.disassemble(inst)
+    print(f"{asm=}")
 
     mutations = disassembler.mutate_inst(inst, end=14 * 8 - 2)
     mutation_set = InstructionMutationSet(inst, asm, mutations, disassembler)
@@ -1569,6 +1560,7 @@ def instruction_analysis_pipeline(inst, disassembler, arch_code):
     analysis_predicate_fix(disassembler, mutation_set, ranges)
 
     modifier_values = ranges.enumerate_modifiers(disassembler)
+    print(f"{modifier_values=}")
     operand_modifier_values = ranges.enumerate_operand_modifiers(disassembler)
     spec = InstructionSpec(
         asm, parsed_inst, ranges, modifier_values, operand_modifier_values
