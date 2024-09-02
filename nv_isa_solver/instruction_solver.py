@@ -226,18 +226,7 @@ class EncodingRanges:
 
         print(f"{_modi_values=}")
         for modifier_i, modifier in enumerate(modifiers):
-            mod_result = self.enumerate_mod(disassembler, list(_modi_values), modifier, modifier_i)
-            if mod_result is None:
-                analysis_result.append([])
-                continue
-
-            for value, name in mod_result:
-                if self.is_invalid(name):
-                    print(f"Invalid mod result: {mod_result}, switching to dependent analysis")
-                    analysis_result.append(self.enumerate_dependent_mod(disassembler, modifiers, modifier_i))
-                    break
-            else:
-                analysis_result.append(mod_result)
+            analysis_result.append(self.enumerate_dependent_mod(disassembler, modifiers, modifier_i))
 
         return analysis_result
 
@@ -253,10 +242,9 @@ class EncodingRanges:
                 results.append(mods)
         real_mods = []
         for probe_val in range(2**modifiers[idx].length):
-            valid = [name for res in results for val,name in res if val == probe_val and not self.is_invalid(name)]
+            valid = {name for res in results for val,name in res if val == probe_val and not self.is_invalid(name)}
             print(f"{probe_val=}, {idx=}, {valid=}")
-            if len(valid):
-                real_mods.append((probe_val, valid[0] if all(v == valid[0] for v in valid) else ''))
+            real_mods.extend([(probe_val, name) for name in valid])
 
         print(f"Dependent result: {real_mods}")
         return real_mods
